@@ -64,6 +64,12 @@ async fn index(
     Ok(HttpResponse::Ok().body(body))
 }
 
+#[get("/add")]
+async fn add(hb: web::Data<Handlebars<'_>>) -> Result<HttpResponse, Error> {
+    let body = hb.render("add", &{}).unwrap();
+    Ok(HttpResponse::Ok().body(body))
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     dotenv().ok();
@@ -89,6 +95,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(pool.clone()))
             .service(Files::new("/static", "static"))
             .service(index)
+            .service(add)
     })
     .bind(("127.0.0.1", 8080))?
     .run()
