@@ -1,16 +1,18 @@
 use self::models::*;
 use actix_files::Files;
-use actix_web::{get, web, App, Error, HttpResponse, HttpServer};
+use actix_web::{get, http, post, web, App, Error, HttpResponse, HttpServer};
 use diesel::pg::PgConnection;
 use diesel::prelude::*;
 use diesel::r2d2::{self, ConnectionManager};
 
 use dotenvy::dotenv;
 use handlebars::Handlebars;
+use std::collections::HashMap;
 use std::env;
 mod models;
 mod schema;
 use self::schema::cats::dsl::*;
+use awmp::Parts;
 use serde::Serialize;
 
 type DbPool = r2d2::Pool<ConnectionManager<PgConnection>>;
@@ -27,9 +29,9 @@ async fn index(
     pool: web::Data<DbPool>,
 ) -> Result<HttpResponse, Error> {
     let cats_data = web::block(move || {
-        let mut conntemp = pool.get();
+        let mut conn = pool.get();
 
-        let connection = conntemp.as_mut().unwrap();
+        let connection = conn.as_mut().unwrap();
 
         cats.limit(100).load::<Cat>(connection)
     })
@@ -70,6 +72,44 @@ async fn add(hb: web::Data<Handlebars<'_>>) -> Result<HttpResponse, Error> {
     Ok(HttpResponse::Ok().body(body))
 }
 
+#[post("/add_cat_form")]
+async fn add_cat_form(pool: web::Data<DbPool>, mut parts: Parts) -> Result<HttpResponse, Error> {
+    let file_path = parts
+        .files
+        .take("image")
+        .pop()
+        .and_then(|f| f.persist_in("./static/img").ok())
+        .unwrap_or_default();
+
+    let text_fields: HashMap<_, _> = parts.texts.as_pairs().into_iter().collect();
+
+    let new_cat = NewCat {
+        name: text_fields.get("name").unwrap().to_string(),
+        image_path: file_path.to_string_lossy().to_string(),
+    };
+
+    let db_result = web::block(move || {
+        let mut conn = pool.get();
+        let connection = conn.as_mut().unwrap();
+
+        diesel::insert_into(cats)
+            .values(&new_cat)
+            .execute(connection)
+    })
+    .await
+    .unwrap();
+
+    match db_result {
+        Ok(res) => {
+            println!("{}", res);
+            Ok(HttpResponse::SeeOther()
+                .append_header((http::header::LOCATION, "/"))
+                .finish())
+        }
+        Err(e) => Err(actix_web::error::ErrorInternalServerError(e)),
+    }
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     dotenv().ok();
@@ -96,6 +136,7 @@ async fn main() -> std::io::Result<()> {
             .service(Files::new("/static", "static"))
             .service(index)
             .service(add)
+            .service(add_cat_form)
     })
     .bind(("127.0.0.1", 8080))?
     .run()
