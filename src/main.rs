@@ -36,7 +36,6 @@ async fn index(
         cats.limit(100).load::<Cat>(connection)
     })
     .await
-    .map_err(|_| HttpResponse::InternalServerError().finish())
     .unwrap();
 
     let data: IndexTemplateData;
@@ -70,6 +69,34 @@ async fn index(
 async fn add(hb: web::Data<Handlebars<'_>>) -> Result<HttpResponse, Error> {
     let body = hb.render("add", &{}).unwrap();
     Ok(HttpResponse::Ok().body(body))
+}
+
+#[get("/cat/{id}")]
+async fn cat(
+    hb: web::Data<Handlebars<'_>>,
+    pool: web::Data<DbPool>,
+    cat_id: web::Path<i32>,
+) -> Result<HttpResponse, Error> {
+    let cat_data = web::block(move || {
+        let mut conn = pool.get();
+
+        let connection = conn.as_mut().unwrap();
+
+        cats.filter(id.eq(cat_id.into_inner()))
+            .first::<Cat>(connection)
+    })
+    .await
+    .unwrap();
+
+    match cat_data {
+        Ok(data) => {
+            println!("{:?}", &data);
+
+            let body = hb.render("cat", &data).unwrap();
+            Ok(HttpResponse::Ok().body(body))
+        }
+        Err(e) => Err(actix_web::error::ErrorInternalServerError(e)),
+    }
 }
 
 #[post("/add_cat_form")]
@@ -137,6 +164,7 @@ async fn main() -> std::io::Result<()> {
             .service(index)
             .service(add)
             .service(add_cat_form)
+            .service(cat)
     })
     .bind(("127.0.0.1", 8080))?
     .run()
