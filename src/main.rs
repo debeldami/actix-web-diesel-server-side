@@ -112,8 +112,14 @@ async fn add_cat_form(pool: web::Data<DbPool>, mut parts: Parts) -> Result<HttpR
 
     let new_cat = NewCat {
         name: text_fields.get("name").unwrap().to_string(),
-        image_path: file_path.to_string_lossy().to_string(),
+        image_path: file_path
+            .to_string_lossy()
+            .to_string()
+            .replace("\\", "/")
+            .replacen(".", "", 1),
     };
+
+    println!("{}", &new_cat.image_path);
 
     let db_result = web::block(move || {
         let mut conn = pool.get();
@@ -160,7 +166,7 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .app_data(handlebars_ref.clone())
             .app_data(web::Data::new(pool.clone()))
-            .service(Files::new("/static", "static"))
+            .service(Files::new("/static", "static").show_files_listing())
             .service(index)
             .service(add)
             .service(add_cat_form)
